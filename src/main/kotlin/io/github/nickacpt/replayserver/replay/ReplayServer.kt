@@ -3,28 +3,30 @@
 package io.github.nickacpt.replayserver.replay
 
 import com.github.steveice10.mc.protocol.MinecraftConstants
-import com.github.steveice10.mc.protocol.MinecraftProtocol
 import com.github.steveice10.mc.protocol.ServerLoginHandler
+import com.github.steveice10.mc.protocol.data.game.PlayerListEntry
+import com.github.steveice10.mc.protocol.data.game.PlayerListEntryAction
+import com.github.steveice10.mc.protocol.data.game.entity.player.GameMode
+import com.github.steveice10.mc.protocol.data.game.world.notify.ClientNotification
 import com.github.steveice10.mc.protocol.data.message.TextMessage
 import com.github.steveice10.mc.protocol.packet.ingame.client.ClientChatPacket
+import com.github.steveice10.mc.protocol.packet.ingame.server.ServerPlayerListEntryPacket
+import com.github.steveice10.mc.protocol.packet.ingame.server.world.ServerNotifyClientPacket
 import com.github.steveice10.packetlib.Server
 import com.github.steveice10.packetlib.Session
 import com.github.steveice10.packetlib.SessionFactory
 import com.github.steveice10.packetlib.event.server.*
 import com.github.steveice10.packetlib.packet.Packet
 import com.github.steveice10.packetlib.packet.PacketProtocol
-import com.github.steveice10.packetlib.tcp.TcpSessionFactory
 import com.google.common.util.concurrent.Futures
 import com.replaymod.replayserver.api.IPacketHandler
 import com.replaymod.replayserver.api.IReplayDatabase
 import com.replaymod.replayserver.api.IReplaySelector
 import io.github.nickacpt.replayserver.replay.selectors.FileReplayDatabase
-import io.github.nickacpt.replayserver.replay.selectors.FixedReplaySelector
 import io.github.nickacpt.replayserver.replay.selectors.PlayerReplaySelector
 import org.apache.logging.log4j.LogManager
 import java.util.*
 import java.util.concurrent.Executors
-import java.util.logging.Logger
 
 class ReplayServer(
     host: String?,
@@ -36,6 +38,7 @@ class ReplayServer(
     private val logger = LogManager.getLogger(javaClass.name)
     private val threadPool = Executors.newCachedThreadPool()
     private val packetHandlers: List<IPacketHandler> = ArrayList()
+
     override fun serverBound(event: ServerBoundEvent) {
         logger.info("Server bound")
     }
@@ -70,36 +73,26 @@ class ReplayServer(
 
 
         if (packet is ClientChatPacket) {
-            val message =
-                packet.message
-            //            if (message.equals(".")) {
+
+            user?.sendPacket(
+                ServerPlayerListEntryPacket(
+                    PlayerListEntryAction.UPDATE_GAMEMODE,
+                    arrayOf(
+                        PlayerListEntry(
+                            user.session.getFlag(
+                                MinecraftConstants.PROFILE_KEY
+                            ), GameMode.CREATIVE
+                        )
+                    )
+                )
+            )
+
+            user?.sendPacket(ServerNotifyClientPacket(ClientNotification.CHANGE_GAMEMODE, GameMode.CREATIVE))
+//            if (message.equals(".")) {
 //                user.getReplaySession().setPaused(!user.getReplaySession().isPaused());
 //            } else {
 //                user.getReplaySession().setSpeed(3);
 //            }
-        }
-    }
-
-    companion object {
-        @Throws(
-            InterruptedException::class,
-            IllegalAccessException::class,
-            InstantiationException::class,
-            ClassNotFoundException::class
-        )
-        @JvmStatic
-        fun main(args: Array<String>) { // TODO config
-            val host = "localhost"
-            val port = 25566
-            val server = ReplayServer(
-                host,
-                port,
-                MinecraftProtocol::class.java,
-                TcpSessionFactory()
-            )
-            server.bind()
-            // TODO read stdin for commands
-            Thread.sleep(Long.MAX_VALUE)
         }
     }
 
@@ -117,7 +110,10 @@ class ReplayServer(
             MinecraftConstants.SERVER_LOGIN_HANDLER_KEY,
             ServerLoginHandler { session: Session ->
                 val user = session.getFlag<ReplayUser>(ReplayUser.SESSION_FLAG) ?: return@ServerLoginHandler
+                session.setFlag(ReplayUser.SERVER_FLAG, this)
+
                 user.replaySelector = replaySelector
+                user.replayDatabase = replayDatabase
 
                 val idFuture = replaySelector.getReplayId(user)
                 idFuture?.addListener(Runnable {

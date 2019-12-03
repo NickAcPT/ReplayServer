@@ -10,8 +10,10 @@ import com.github.steveice10.mc.protocol.data.game.world.block.BlockChangeRecord
 import com.github.steveice10.mc.protocol.data.game.world.block.BlockState
 import com.github.steveice10.mc.protocol.data.message.TextMessage
 import com.github.steveice10.mc.protocol.packet.ingame.client.window.ClientCloseWindowPacket
+import com.github.steveice10.mc.protocol.packet.ingame.client.window.ClientWindowActionPacket
 import com.github.steveice10.mc.protocol.packet.ingame.server.ServerJoinGamePacket
 import com.github.steveice10.mc.protocol.packet.ingame.server.entity.player.ServerPlayerPositionRotationPacket
+import com.github.steveice10.mc.protocol.packet.ingame.server.window.ServerCloseWindowPacket
 import com.github.steveice10.mc.protocol.packet.ingame.server.world.ServerBlockChangePacket
 import com.github.steveice10.mc.protocol.packet.ingame.server.world.ServerChunkDataPacket
 import com.github.steveice10.mc.protocol.packet.ingame.server.world.ServerSpawnPositionPacket
@@ -24,8 +26,8 @@ import com.replaymod.replayserver.api.IReplaySelector
 import io.github.nickacpt.replayserver.inventory.ComplexItemStack
 import io.github.nickacpt.replayserver.inventory.Inventory
 import io.github.nickacpt.replayserver.inventory.Material
-import io.github.nickacpt.replayserver.replay.ReplayUser
 import net.kyori.text.TextComponent
+import net.kyori.text.format.TextColor
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
@@ -34,8 +36,9 @@ class PlayerReplaySelector : IReplaySelector {
 
     class PlayerSelectorCompletableFuture(var user: IConnectedPlayer) : ListenableFuture<String?> {
         lateinit var runnable: Runnable
-
-        lateinit var executor: Executor
+        var result: String = ""
+        private lateinit var executor: Executor
+        var replays = user.replayDatabase?.getAvailableReplays()
 
         override fun addListener(p0: Runnable, p1: Executor) {
             runnable = p0
@@ -43,29 +46,28 @@ class PlayerReplaySelector : IReplaySelector {
 
             kotlin.run {
                 spawnPlayer()
-                (user as? ReplayUser)?.onPacket<ClientCloseWindowPacket>(Runnable {
-                    user.kick(TextMessage("Please pick a replay to watch!"))
-                })
-
                 sendWindow()
             }
         }
 
         private fun sendWindow() {
             val inv = Inventory(WindowType.GENERIC_9X3)
-            inv.setSlot(0, ComplexItemStack(Material.PAPER).apply {
-                this.name = TextComponent.of("Testing")
-                this.lore.add(TextComponent.of("Test message"))
-            })
+            replays?.withIndex()?.forEach {
+                val item = ComplexItemStack(Material.PAPER, it.index + 1)
+                item.name = TextComponent.of(it.value)
+                item.lore.apply { clear() }.add(TextComponent.of("Click to watch this replay!", TextColor.GREEN))
+
+                inv.setSlot(it.index, item)
+            }
             inv.show(user)
         }
 
         override fun isDone(): Boolean {
-            return false
+            return result.isNotEmpty()
         }
 
         override fun get(): String {
-            return ""
+            return result
         }
 
         override fun get(timeout: Long, unit: TimeUnit): String {
@@ -83,7 +85,7 @@ class PlayerReplaySelector : IReplaySelector {
         private fun spawnPlayer() {
             user.sendPacket(
                 ServerJoinGamePacket(
-                    -12345, false, GameMode.ADVENTURE, 0, 100,
+                    -1234567, false, GameMode.ADVENTURE, 0, 100,
                     WorldType.DEFAULT, 1, false
                 )
             )
@@ -106,8 +108,8 @@ class PlayerReplaySelector : IReplaySelector {
         private fun sendPlayerChunkData() {
             // Send chunk data
             val chunk = Chunk()
-            for (x in -2..1) {
-                for (z in -2..1) {
+            for (x in -1..1) {
+                for (z in -1..1) {
                     run {
                         val col =
                             Column(
@@ -126,12 +128,29 @@ class PlayerReplaySelector : IReplaySelector {
         }
 
         fun handlePacket(packet: Packet): Boolean {
+            if (packet is ClientCloseWindowPacket) {
+                user.kick(TextMessage("Please pick a replay to watch!"))
+                return true
+            } else if (packet is ClientWindowActionPacket) {
+                if (packet.windowId != 0) {
+                    val res = replays?.getOrNull(packet.slot)
+                    if (res != null) {
+                        user.sendPacket(ServerCloseWindowPacket(packet.windowId))
+                        //Notify of result
+                        result = res
+                        executor.execute(runnable)
+                        sendPlayerChunkData()
+                    }
+                }
+            }
             return false
         }
     }
 
     override fun handlePacket(user: IConnectedPlayer, packet: Packet): Boolean? {
-        return playerSelectorCompletableFuture.handlePacket(packet)
+        if (!playerSelectorCompletableFuture.isDone)
+            return playerSelectorCompletableFuture.handlePacket(packet)
+        return false
     }
 
     override fun getReplayId(user: IConnectedPlayer): ListenableFuture<String?>? {

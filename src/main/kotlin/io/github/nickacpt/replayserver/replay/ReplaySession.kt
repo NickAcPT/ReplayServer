@@ -3,8 +3,7 @@ package io.github.nickacpt.replayserver.replay
 import com.github.steveice10.mc.protocol.data.game.entity.player.GameMode
 import com.github.steveice10.mc.protocol.data.game.world.notify.ClientNotification
 import com.github.steveice10.mc.protocol.packet.ingame.server.*
-import com.github.steveice10.mc.protocol.packet.ingame.server.entity.player.ServerPlayerAbilitiesPacket
-import com.github.steveice10.mc.protocol.packet.ingame.server.entity.player.ServerPlayerPositionRotationPacket
+import com.github.steveice10.mc.protocol.packet.ingame.server.entity.player.*
 import com.github.steveice10.mc.protocol.packet.ingame.server.window.ServerCloseWindowPacket
 import com.github.steveice10.mc.protocol.packet.ingame.server.window.ServerOpenWindowPacket
 import com.github.steveice10.mc.protocol.packet.ingame.server.window.ServerSetSlotPacket
@@ -12,6 +11,7 @@ import com.github.steveice10.mc.protocol.packet.ingame.server.window.ServerWindo
 import com.github.steveice10.mc.protocol.packet.ingame.server.world.ServerNotifyClientPacket
 import com.github.steveice10.mc.protocol.packet.ingame.server.world.ServerOpenTileEntityEditorPacket
 import com.github.steveice10.packetlib.packet.Packet
+import com.github.steveice10.packetlib.tcp.TcpServerSession
 import com.google.common.base.Preconditions
 import com.google.common.collect.Sets
 import com.replaymod.replayserver.api.IReplaySession
@@ -19,6 +19,8 @@ import com.replaymod.replaystudio.PacketData
 import com.replaymod.replaystudio.io.ReplayInputStream
 import com.replaymod.replaystudio.replay.ReplayFile
 import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.URI
 
 class ReplaySession(override val user: ReplayUser, override val replayFile: ReplayFile) : IReplaySession {
     private var inputStream: ReplayInputStream? = null
@@ -129,31 +131,59 @@ class ReplaySession(override val user: ReplayUser, override val replayFile: Repl
         if (BAD_PACKETS.contains(packet.javaClass)) {
             return
         }
-        if (packet is ServerResourcePackSendPacket) { // TODO
+        if (packet is ServerResourcePackSendPacket) {
+            val uri = URI.create(packet.url)
+
+            if (uri.scheme == "replay") {
+                val file = replayFile.resourcePackIndex.getOrDefault(uri.host.toInt(), "")
+                if (file.isEmpty() || file.contains("..")) {
+                    return
+                }
+                var value = user.session.getFlag<ReplayServer>(ReplayUser.SERVER_FLAG).host
+                if (value == "0.0.0.0" && user.session is TcpServerSession && user.session.localAddress is InetSocketAddress)
+                    value = ((user.session.localAddress) as InetSocketAddress).address.toString().substring(1);
+
+                val newHost = "http://$value:${user.resourcePackServer.port}/resourcepack/$file"
+
+                packet = ServerResourcePackSendPacket(newHost, packet.hash)
+            }
         }
+
         if (packet is ServerJoinGamePacket) {
-            val p =
-                packet
-            // Change entity id to invalid value and force gamemode to spectator
+
+
+            /*
+            The following has been taken from the VelocityPowered proxy.
+            In order to handle switching to another server, you will need to send three packets:
+
+            - The join game packet from the backend server
+            - A respawn packet with a different dimension
+            - Another respawn with the correct dimension
+
+            The two respawns with different dimensions are required, otherwise the client gets
+            confused.
+
+            Most notably, by having the client accept the join game packet, we can work around the need
+            to perform entity ID rewrites, eliminating potential issues from rewriting packets and
+            */
             packet = ServerJoinGamePacket(
-                -1789435,
-                p.isHardcore,
-                GameMode.SPECTATOR,
-                p.dimension,
-                p.maxPlayers,
-                p.worldType,
-                p.viewDistance,
-                p.isReducedDebugInfo
+                -1234567, packet.isHardcore, GameMode.SPECTATOR, packet.dimension, 0,
+                packet.worldType, packet.viewDistance, packet.isReducedDebugInfo
             )
+
+            val tempDim = if (packet.dimension == 0) -1 else 0
+
+            user.sendPacket(packet)
+            user.sendPacket(ServerRespawnPacket(tempDim, packet.gameMode, packet.worldType))
+            user.sendPacket(ServerRespawnPacket(packet.dimension, packet.gameMode, packet.worldType))
+
+            return
         }
         if (packet is ServerRespawnPacket) {
-            val p =
-                packet
-            // Force gamemode to spectator
             packet = ServerRespawnPacket(
-                p.dimension,
+                packet.dimension,
                 GameMode.SPECTATOR,
-                p.worldType
+                packet.worldType
             )
         }
         if (packet is ServerPlayerPositionRotationPacket) {
@@ -174,18 +204,20 @@ class ReplaySession(override val user: ReplayUser, override val replayFile: Repl
          * Packets that are always filtered from the replay.
          */
         private val BAD_PACKETS: Set<Class<*>> =
-            Sets.newHashSet<Class<*>>( //            ServerUpdateHealthPacket.class,
+            Sets.newHashSet<Class<*>>(
+                ServerPlayerHealthPacket::class.java,
                 ServerOpenWindowPacket::class.java,
+                ServerPlayerChangeHeldItemPacket::class.java,
                 ServerCloseWindowPacket::class.java,
                 ServerSetSlotPacket::class.java,
                 ServerWindowItemsPacket::class.java,
                 ServerOpenTileEntityEditorPacket::class.java,
                 ServerStatisticsPacket::class.java,  //            ServerSetExperiencePacket.class,
-//            ServerUpdateHealthPacket.class,
-//            ServerChangeHeldItemPacket.class,
                 ServerSwitchCameraPacket::class.java,
                 ServerPlayerAbilitiesPacket::class.java,
-                ServerTitlePacket::class.java
+                ServerTitlePacket::class.java,
+                ServerPlayerSetExperiencePacket::class.java
+//                ServerUnloadChunkPacket::class.java
             )
     }
 

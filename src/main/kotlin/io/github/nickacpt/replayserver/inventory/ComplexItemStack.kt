@@ -10,7 +10,7 @@ import io.github.nickacpt.replayserver.toMessage
 import net.kyori.text.Component
 import net.kyori.text.TextComponent
 
-class ComplexItemStack(material: Material, amount: Int = 1) : ItemStack(material.id, amount, CompoundTag("")) {
+class ComplexItemStack(material: Material, var itemAmount: Int = 1) : ItemStack(material.id, itemAmount) {
 
     init {
         prepareNbtTags()
@@ -36,8 +36,8 @@ class ComplexItemStack(material: Material, amount: Int = 1) : ItemStack(material
     }
 
     private fun applyDisplayLoreComponent() {
-        if (lore != null)
-            nbt.get<CompoundTag>(DisplayTag).put(ListTag(LoreTag, lore!!.map { StringTag("", TextComponent.of("§r").append(it).serialize()) }.toList())
+        if (lore.isNotEmpty())
+            nbt.get<CompoundTag>(DisplayTag).put(ListTag(LoreTag, lore.map { StringTag("", TextComponent.of("§r").append(it).serialize()) }.toList())
             )
         else
             nbt.get<CompoundTag>(DisplayTag).remove(LoreTag)

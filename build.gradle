@@ -20,7 +20,6 @@ repositories {
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
-    testCompile group: 'junit', name: 'junit', version: '4.12'
 
     implementation name: 'ReplayStudio'
 
@@ -28,12 +27,15 @@ dependencies {
     implementation 'org.jline:jline-terminal-jansi:3.12.1'
     implementation 'com.lmax:disruptor:3.4.2'
 
-    implementation 'com.github.nickacpt:mcprotocollib:1.14.4-6-SNAPSHOT'
+    implementation 'com.github.nickacpt:mcprotocollib:1.14.4-7-SNAPSHOT'
 
-    implementation 'com.spotify:futures-extra:4.2.2'
+    implementation "com.sparkjava:spark-kotlin:1.0.0-alpha"
 
-    compile 'net.kyori:text-api:3.0.0'
-    compile 'net.kyori:text-serializer-gson:3.0.0'
+    implementation 'net.kyori:text-api:3.0.0'
+    implementation 'net.kyori:text-serializer-gson:3.0.0'
+
+    implementation group: 'org.slf4j', name: 'slf4j-nop', version: '2.0.0-alpha1'
+
 
 }
 

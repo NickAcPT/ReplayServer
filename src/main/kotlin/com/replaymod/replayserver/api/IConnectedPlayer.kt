@@ -4,6 +4,7 @@ import com.github.steveice10.mc.protocol.data.message.Message
 import com.github.steveice10.packetlib.Session
 import com.github.steveice10.packetlib.packet.Packet
 import com.replaymod.replaystudio.util.Location
+import io.github.nickacpt.replayserver.resourcepacks.ResourcePackServer
 import io.github.nickacpt.replayserver.sender.ICommandSender
 
 /**
@@ -49,11 +50,20 @@ interface IConnectedPlayer : ICommandSender {
     var replaySelector: IReplaySelector?
 
     /**
+     * Returns the replay database of this player.
+     * @return The replay database used by this player
+     */
+    var replayDatabase: IReplayDatabase?
+
+    /**
      * Returns whether this sender is still connected.
      * Once the sender disconnects, this function will never return `true` again.
      * @return `true` if the sender is connected, `false otherwise`
      */
     val isConnected: Boolean
 
-
+    /**
+     * The web server responsible for sending resource packs to this player.
+     */
+    val resourcePackServer: ResourcePackServer
 }

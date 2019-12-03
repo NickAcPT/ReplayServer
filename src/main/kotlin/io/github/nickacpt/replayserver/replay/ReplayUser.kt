@@ -12,15 +12,16 @@ import com.github.steveice10.mc.protocol.packet.ingame.server.ServerDisconnectPa
 import com.github.steveice10.mc.protocol.packet.ingame.server.ServerPlayerListEntryPacket
 import com.github.steveice10.mc.protocol.packet.ingame.server.entity.player.ServerPlayerPositionRotationPacket
 import com.github.steveice10.packetlib.Session
-import com.github.steveice10.packetlib.event.session.DisconnectedEvent
-import com.github.steveice10.packetlib.event.session.PacketReceivedEvent
-import com.github.steveice10.packetlib.event.session.SessionAdapter
+import com.github.steveice10.packetlib.event.session.*
 import com.github.steveice10.packetlib.packet.Packet
 import com.replaymod.replayserver.api.IConnectedPlayer
+import com.replaymod.replayserver.api.IReplayDatabase
 import com.replaymod.replayserver.api.IReplaySelector
 import com.replaymod.replayserver.api.IReplaySession
 import com.replaymod.replaystudio.replay.ReplayFile
 import com.replaymod.replaystudio.util.Location
+import io.github.nickacpt.replayserver.resourcepacks.ResourcePackServer
+import org.apache.logging.log4j.LogManager
 import java.util.*
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executor
@@ -35,6 +36,8 @@ class ReplayUser(private val server: ReplayServer, override val session: Session
     private val workerThreadQueue: Queue<Runnable> = ConcurrentLinkedQueue()
     private var workerThread: Thread? = null
     override var replaySelector: IReplaySelector? = null
+    override var replayDatabase: IReplayDatabase? = null
+    override val resourcePackServer = ResourcePackServer(this)
     var packetListeners = hashMapOf<Class<*>, MutableList<Runnable>>()
 
     override fun sendPacket(packet: Packet?) {
@@ -86,12 +89,13 @@ class ReplayUser(private val server: ReplayServer, override val session: Session
     }
 
     override fun disconnected(event: DisconnectedEvent) {
+        resourcePackServer.stop()
         if (replaySession != null) {
             try {
                 replaySession!!.close()
                 replaySession = null
             } catch (t: Throwable) {
-                logger.log(Level.SEVERE, "Error closing replay session:", t)
+                logger.error("Error closing replay session:", t)
             }
         }
     }
@@ -120,7 +124,7 @@ class ReplayUser(private val server: ReplayServer, override val session: Session
                 }
             }
         } catch (t: Throwable) {
-            logger.log(Level.SEVERE, "Exception in user worker loop:", t)
+            logger.error("Exception in user worker loop:", t)
             kick(TextMessage("Internal Server Error"))
         }
     }
@@ -131,7 +135,9 @@ class ReplayUser(private val server: ReplayServer, override val session: Session
     }
 
     fun init(replayFile: ReplayFile) {
-        logger.fine("Initializing session for $this with replay $replayFile")
+        logger.info("Initializing session for $this with replay $replayFile")
+
+        resourcePackServer.start()
         replaySession = ReplaySession(this, replayFile)
         // We need to send a player list entry for the spectator to be able to no-clip
         // This will inevitably show the spectator player as the last (?) player in the tablist, however there isn't any
@@ -155,8 +161,9 @@ class ReplayUser(private val server: ReplayServer, override val session: Session
 
     companion object {
         const val SESSION_FLAG = "replay_user"
+        const val SERVER_FLAG = "replay_server"
         private val logger =
-            Logger.getLogger(ReplayUser::class.java.name)
+            LogManager.getLogger(ReplayUser::class)
     }
 
     init {
